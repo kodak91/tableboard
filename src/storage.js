@@ -10,9 +10,14 @@
  * 3. 아래 FIREBASE_URL을 복사한 DB URL로 교체 (예: https://xxx-default-rtdb.firebaseio.com)
  */
 
-const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL || '';
+const FIREBASE_URL = (import.meta.env.VITE_FIREBASE_URL || '').replace(/\/$/, '');
+
+if (!FIREBASE_URL) {
+  console.warn('[storage] VITE_FIREBASE_URL이 설정되지 않았습니다. 멀티플레이 기능을 사용하려면 Firebase Realtime Database URL을 환경 변수로 추가하세요.');
+}
 
 async function fbFetch(key, method, body) {
+  if (!FIREBASE_URL) throw new Error('Firebase URL not configured');
   const url = `${FIREBASE_URL}/${encodeURIComponent(key)}.json`;
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body !== undefined) opts.body = JSON.stringify(body);
