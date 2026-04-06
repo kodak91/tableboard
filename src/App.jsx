@@ -518,14 +518,14 @@ function bsInitRound(round, roundResults) {
   const si=itemsPerReload>0?bsItems([],Math.min(itemsPerReload,8)):[];
   return {
     phase:'player_turn',round,roundResults:roundResults||[],
-    revealId:Date.now(),revealVisible:true,
+    revealId:Date.now(),
     revealDisplay:round===3?shuffle([...ch]):null,
     subReload:1,ch,live,blank,
     sawedOff:false,
     pHP:hp,pMax:hp,dHP:hp,dMax:hp,
     pItems:[...si],dItems:[...si],
     pCuffed:false,dCuffed:false,
-    knownBullet:null,winner:null,
+    pKnown:null,dKnown:null,winner:null,
     pDefiUsed:false,dDefiUsed:false,
     pDefiLocked:false,dDefiLocked:false,
     reload:1,
@@ -566,21 +566,21 @@ async function runDealer(initGs, setGs, pushLog, setThinking, setAiPopup, trigge
   }
 
   // 2. Use glass to get info
-  if(!g.knownBullet&&g.dItems.includes('glass')&&Math.random()<0.85) {
-    g={...g,knownBullet:{isLive:g.ch[0]},dItems:bsRem(g.dItems,'glass')};
+  if(!g.dKnown&&g.dItems.includes('glass')&&Math.random()<0.85) {
+    g={...g,dKnown:{isLive:g.ch[0]},dItems:bsRem(g.dItems,'glass')};
     showItem('glass'); pushLog('딜러가 돋보기를 꺼냅니다... 🔍','info'); setGs({...g}); await sleep(2000);
   }
 
-  const known=g.knownBullet;
+  const known=g.dKnown;
 
   // 3. Invert if known blank
   if(known&&!known.isLive&&g.dItems.includes('invert')&&Math.random()<0.9) {
-    g={...g,ch:[true,...g.ch.slice(1)],live:g.live+1,blank:g.blank-1,knownBullet:{isLive:true},dItems:bsRem(g.dItems,'invert')};
+    g={...g,ch:[true,...g.ch.slice(1)],live:g.live+1,blank:g.blank-1,dKnown:{isLive:true},dItems:bsRem(g.dItems,'invert')};
     showItem('invert'); pushLog('딜러가 인버터를 사용합니다! 🔄','warn'); setGs({...g}); await sleep(2000);
   }
 
   // 4. Saw if live bullet expected
-  const nowKnown=g.knownBullet;
+  const nowKnown=g.dKnown;
   if((nowKnown?.isLive||prob()>0.65)&&!g.sawedOff&&g.dItems.includes('saw')&&Math.random()<0.8) {
     g={...g,sawedOff:true,dItems:bsRem(g.dItems,'saw')};
     showItem('saw'); pushLog('딜러가 총신을 절단합니다! 🪚','warn'); setGs({...g}); await sleep(2000);
@@ -594,12 +594,12 @@ async function runDealer(initGs, setGs, pushLog, setThinking, setAiPopup, trigge
 
   // SHOOT
   await sleep(2000);
-  const kn=g.knownBullet;
+  const kn=g.dKnown;
   const shootSelf = kn ? !kn.isLive : prob()<0.4;
   const target=shootSelf?'dealer':'player';
   const bullet=g.ch[0];
   const dmg=bullet?(g.sawedOff?2:1):0;
-  g={...g,ch:g.ch.slice(1),live:bullet?g.live-1:g.live,blank:bullet?g.blank:g.blank-1,sawedOff:false,knownBullet:null};
+  g={...g,ch:g.ch.slice(1),live:bullet?g.live-1:g.live,blank:bullet?g.blank:g.blank-1,sawedOff:false,pKnown:null,dKnown:null};
 
   if(bullet) {
     triggerShake();
@@ -642,7 +642,7 @@ async function runDealer(initGs, setGs, pushLog, setThinking, setAiPopup, trigge
       pHP:newPHP,dHP:newDHP,
       pItems:bsItems(g.pItems,Math.min(itemsPerReload,8-g.pItems.length)),
       dItems:bsItems(g.dItems,Math.min(itemsPerReload,8-g.dItems.length)),
-      revealId:Date.now(),revealVisible:true,revealDisplay:revDisp};
+      revealId:Date.now(),revealDisplay:revDisp,pKnown:null,dKnown:null};
     const docMsg=hasDoc&&(newPHP>prevPHP||newDHP>prevDHP)?' 의사의 도움으로 체력+1':'';
     pushLog(`탄창 비어있음 — 재장전!${docMsg}`,'reload'); setGs(g); await sleep(2000);
   }
@@ -683,18 +683,18 @@ function BuckshotGame({onExit}) {
   const [hovItem,setHovItem]=useState(null);
   const [aiPopup,setAiPopup]=useState(null);
   const [shake,setShake]=useState(false);
+  const [revealVisible,setRevealVisible]=useState(false);
 
   const pushLog=useCallback((text,type='info')=>setLog(l=>[...l.slice(-4),{text,type,id:Date.now()+Math.random()}]),[]);
   const doFlash=(type)=>{ setFlash(type); setTimeout(()=>setFlash(null),700); };
   const triggerShake=()=>{ setShake(true); setTimeout(()=>setShake(false),600); };
 
-  // 탄환 정보 3초 공개 후 자동 숨김 (revealId 바뀔 때마다 항상 타이머 시작)
+  // revealId가 바뀔 때마다 revealVisible을 독립 state로 켜고 3초 뒤 끔
+  // (game state 로컬 변수가 덮어쓰는 race condition 방지)
   useEffect(()=>{
     if(!gs?.revealId) return;
-    const id=gs.revealId;
-    const t=setTimeout(()=>{
-      setGs(prev=>{if(!prev||prev.revealId!==id)return prev;return {...prev,revealVisible:false};});
-    },3000);
+    setRevealVisible(true);
+    const t=setTimeout(()=>setRevealVisible(false),3000);
     return ()=>clearTimeout(t);
   },[gs?.revealId]);
 
@@ -720,7 +720,7 @@ function BuckshotGame({onExit}) {
         break;
       }
       case 'beer': {
-        const ejected=g.ch[0]; g.ch=g.ch.slice(1); g.live-=ejected?1:0; g.blank-=ejected?0:1; g.knownBullet=null;
+        const ejected=g.ch[0]; g.ch=g.ch.slice(1); g.live-=ejected?1:0; g.blank-=ejected?0:1; g.pKnown=null; g.dKnown=null;
         pushLog(`맥주로 탄환 배출! ${ejected?'🔴실탄':'⚪공탄'}이었습니다 🍺`,'info');
         if(g.ch.length===0){
           const hasDoc=g.round===2;
@@ -735,22 +735,22 @@ function BuckshotGame({onExit}) {
             pHP:newPHP,dHP:newDHP,
             pItems:bsItems(g.pItems,Math.min(itemsPerReload,8-g.pItems.length)),
             dItems:bsItems(g.dItems,Math.min(itemsPerReload,8-g.dItems.length)),
-            revealId:Date.now(),revealVisible:true,revealDisplay:revDisp};
+            revealId:Date.now(),revealDisplay:revDisp,pKnown:null,dKnown:null};
           const docMsg=hasDoc&&(newPHP>prevPHP||newDHP>prevDHP)?' 의사의 도움으로 체력+1':'';
           pushLog(`탄창 비어있음 — 재장전!${docMsg}`,'reload');
         }
         break;
       }
       case 'saw': g.sawedOff=true; pushLog('총신 절단! 다음 발사 데미지 2배 🪚','warn'); break;
-      case 'glass': g.knownBullet={isLive:g.ch[0]}; pushLog(`돋보기로 확인 — 현재 탄환: ${g.ch[0]?'🔴실탄':'⚪공탄'} 🔍`,'info'); break;
+      case 'glass': g.pKnown={isLive:g.ch[0]}; pushLog(`돋보기로 확인 — 현재 탄환: ${g.ch[0]?'🔴실탄':'⚪공탄'} 🔍`,'info'); break;
       case 'phone': {
         const fi=Math.floor(Math.random()*g.ch.length);
         pushLog(`전화기 — ${fi+1}번째 탄환: ${g.ch[fi]?'🔴실탄':'⚪공탄'} 📱`,'info'); break;
       }
       case 'invert':
         g.ch=[!g.ch[0],...g.ch.slice(1)]; if(g.ch[0]){g.live++;g.blank--;}else{g.live--;g.blank++;}
-        g.knownBullet=g.knownBullet?{isLive:!g.knownBullet.isLive}:null;
-        pushLog(`인버터 — 탄환 반전! 이제 ${g.ch[0]?'🔴실탄':'⚪공탄'} 🔄`,'info'); break;
+        g.pKnown=null; g.dKnown=null;
+        pushLog('인버터 — 탄환 반전! 🔄','info'); break;
       case 'cuffs': g.dCuffed=true; pushLog('딜러에게 수갑! 다음 딜러 턴 스킵 🔗','info'); break;
       default: break;
     }
@@ -760,7 +760,7 @@ function BuckshotGame({onExit}) {
   const playerShoot=(target)=>{
     if(!gs||gs.phase!=='player_turn'||thinking) return;
     const bullet=gs.ch[0],dmg=bullet?(gs.sawedOff?2:1):0;
-    let g={...gs,ch:gs.ch.slice(1),live:bullet?gs.live-1:gs.live,blank:bullet?gs.blank:gs.blank-1,sawedOff:false,knownBullet:null};
+    let g={...gs,ch:gs.ch.slice(1),live:bullet?gs.live-1:gs.live,blank:bullet?gs.blank:gs.blank-1,sawedOff:false,pKnown:null,dKnown:null};
     if(bullet) {
       doFlash(target==='dealer'?'hit-d':'hit-p');
       triggerShake();
@@ -805,7 +805,7 @@ function BuckshotGame({onExit}) {
         pHP:newPHP,dHP:newDHP,
         pItems:bsItems(g.pItems,Math.min(itemsPerReload,8-g.pItems.length)),
         dItems:bsItems(g.dItems,Math.min(itemsPerReload,8-g.dItems.length)),
-        revealId:revId,revealVisible:true,revealDisplay:revDisp};
+        revealId:revId,revealDisplay:revDisp,pKnown:null,dKnown:null};
       const docMsg=hasDoc&&(newPHP>prevPHP||newDHP>prevDHP)?' 의사의 도움으로 체력+1':'';
       pushLog(`탄창 비어있음 — 재장전!${docMsg}`,'reload'); setGs(g);
       const next=(!bullet&&target==='player')?'player_turn':g.dCuffed?'player_turn':'dealer_turn';
@@ -966,7 +966,7 @@ function BuckshotGame({onExit}) {
           {/* Bullet display */}
           <div style={{textAlign:'center',flex:1}}>
             {/* 라운드 3 공개 시: 순서 섞인 컬러 탄환 표시 */}
-            {gs.revealVisible&&gs.round===3&&gs.revealDisplay&&(
+            {revealVisible&&gs.round===3&&gs.revealDisplay&&(
               <div style={{display:'flex',gap:3,justifyContent:'center',marginBottom:4,flexWrap:'wrap'}}>
                 {gs.revealDisplay.map((b,i)=>(
                   <div key={i} style={{width:9,height:16,borderRadius:2,
@@ -977,35 +977,35 @@ function BuckshotGame({onExit}) {
               </div>
             )}
             {/* 일반 탄환 아이콘 (라운드 3 공개 중엔 숨김) */}
-            {!(gs.revealVisible&&gs.round===3)&&(
+            {!(revealVisible&&gs.round===3)&&(
               <div style={{display:'flex',gap:3,justifyContent:'center',marginBottom:4,flexWrap:'wrap'}}>
                 {gs.ch.map((b,i)=>(
                   <div key={i} style={{width:9,height:16,borderRadius:2,
-                    background:i===0&&gs.knownBullet?(gs.knownBullet.isLive?'#ef4444':'#6b7280'):'rgba(255,255,255,.15)',
-                    border:`1px solid ${i===0&&gs.knownBullet?(gs.knownBullet.isLive?'rgba(239,68,68,.8)':'rgba(107,114,128,.7)'):'rgba(255,255,255,.18)'}`,
-                    boxShadow:i===0&&gs.knownBullet?.isLive?'0 0 6px rgba(239,68,68,.6)':'none',
+                    background:i===0&&gs.pKnown?(gs.pKnown.isLive?'#ef4444':'#6b7280'):'rgba(255,255,255,.15)',
+                    border:`1px solid ${i===0&&gs.pKnown?(gs.pKnown.isLive?'rgba(239,68,68,.8)':'rgba(107,114,128,.7)'):'rgba(255,255,255,.18)'}`,
+                    boxShadow:i===0&&gs.pKnown?.isLive?'0 0 6px rgba(239,68,68,.6)':'none',
                     transition:'all .3s'}}/>
                 ))}
               </div>
             )}
             {/* 개수 텍스트: 라운드 1,2 공개 중에만 표시 */}
-            {gs.revealVisible&&gs.round<3&&(
+            {revealVisible&&gs.round<3&&(
               <div style={{fontSize:'.63rem',color:'#5a6a4a'}}>🔴 {gs.live} | ⚪ {gs.blank} | 남은 {gs.ch.length}발</div>
             )}
-            {gs.revealVisible&&gs.round===3&&(
+            {revealVisible&&gs.round===3&&(
               <div style={{fontSize:'.62rem',color:'#f59e0b'}}>⚠ 탄환 정보 비공개</div>
             )}
-            {!gs.revealVisible&&(
+            {!revealVisible&&(
               <div style={{fontSize:'.63rem',color:'#3a4a3a'}}>— 정보 숨겨짐 —</div>
             )}
-            {gs.knownBullet&&<div style={{fontSize:'.62rem',color:gs.knownBullet.isLive?'#f87171':'#818cf8',marginTop:2}}>▲ 현재: {gs.knownBullet.isLive?'🔴실탄':'⚪공탄'}</div>}
+            {gs.pKnown&&<div style={{fontSize:'.62rem',color:gs.pKnown.isLive?'#f87171':'#818cf8',marginTop:2}}>▲ 현재: {gs.pKnown.isLive?'🔴실탄':'⚪공탄'}</div>}
           </div>
 
           {/* Stats */}
           <div style={{textAlign:'right',minWidth:60,fontSize:'.65rem',color:'#5a6a4a'}}>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:'.68rem',color:'#c9a84c',fontWeight:700,marginBottom:2}}>R{gs.round}</div>
             <div>장전 {gs.reload}회</div>
-            {gs.revealVisible&&gs.round<3&&(
+            {revealVisible&&gs.round<3&&(
               <div style={{color:liveProb>0.6?'#f87171':liveProb>0.35?'#f59e0b':'#34d399',marginTop:2,fontWeight:700}}>
                 실탄 {Math.round(liveProb*100)}%
               </div>
@@ -1312,7 +1312,7 @@ export default function App() {
 
       {/* PLAYING: Buckshot (solo AI) */}
       {screen==='playing'&&gameId==='buckshot'&&!solo&&!multi&&(
-        <BuckshotGame onExit={()=>{setGameId(null);setScreen('game-select');}}/>
+        <BuckshotGame onExit={()=>{setGameId(null);setScreen('hub');}}/>
       )}
 
     </div>
