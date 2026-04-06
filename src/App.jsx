@@ -535,26 +535,28 @@ function bsInitRound(round, roundResults) {
 function bsInit() { return bsInitRound(1,[]); }
 
 // Dealer AI — runs outside component to avoid closure issues
-async function runDealer(initGs, setGs, pushLog, setThinking) {
+async function runDealer(initGs, setGs, pushLog, setThinking, setAiPopup, triggerShake) {
   let g={...initGs};
   const prob = ()=> g.ch.length>0 ? g.live/g.ch.length : 0;
-  const hasDoc = g.round<3;
+  const hasDoc = g.round===2;  // 의사 도움: 2라운드만
 
-  await sleep(700);
+  const showItem=(key)=>{setAiPopup(key);setTimeout(()=>setAiPopup(null),1600);};
+
+  await sleep(2000);
 
   // 1. Heal if low HP
   if(g.dHP<=Math.ceil(g.dMax*0.35)&&g.dItems.includes('cig')) {
     g={...g,dHP:Math.min(g.dHP+1,g.dMax),dItems:bsRem(g.dItems,'cig')};
-    pushLog('딜러가 담배를 피웁니다... 체력+1 🚬','info'); setGs({...g}); await sleep(900);
+    showItem('cig'); pushLog('딜러가 담배를 피웁니다... 체력+1 🚬','info'); setGs({...g}); await sleep(2000);
   } else if(g.dHP<=1&&g.dItems.includes('pills')) {
     const lucky=Math.random()>0.5;
     if(lucky){g.dMax+=2;g.dHP=Math.min(g.dHP+2,g.dMax);}else{g.dHP=Math.max(g.dHP-1,0);}
     g.dItems=bsRem(g.dItems,'pills');
-    pushLog(lucky?'딜러 알약 복용 — 체력+2 💊':'딜러 알약 복용 — 체력-1 💊','info'); setGs({...g}); await sleep(900);
+    showItem('pills'); pushLog(lucky?'딜러 알약 복용 — 체력+2 💊':'딜러 알약 복용 — 체력-1 💊','info'); setGs({...g}); await sleep(2000);
     if(g.round===3&&g.dHP<=2&&g.dHP>0) g={...g,dDefiLocked:true};
     if(g.dHP<=0){
       if(!g.dDefiUsed&&!g.dDefiLocked){
-        g={...g,dHP:1,dDefiUsed:true}; pushLog('⚡ 제세동기 발동! 딜러 체력 1 회복','warn'); setGs({...g}); await sleep(900);
+        g={...g,dHP:1,dDefiUsed:true}; pushLog('⚡ 제세동기 발동! 딜러 체력 1 회복','warn'); setGs({...g}); await sleep(2000);
       } else {
         const nr=[...g.roundResults,{round:g.round,winner:'player'}];
         setGs({...g,phase:g.round<3?'round_win':'game_over',winner:'player',roundResults:nr});
@@ -566,7 +568,7 @@ async function runDealer(initGs, setGs, pushLog, setThinking) {
   // 2. Use glass to get info
   if(!g.knownBullet&&g.dItems.includes('glass')&&Math.random()<0.85) {
     g={...g,knownBullet:{isLive:g.ch[0]},dItems:bsRem(g.dItems,'glass')};
-    pushLog('딜러가 돋보기를 꺼냅니다... 🔍','info'); setGs({...g}); await sleep(1100);
+    showItem('glass'); pushLog('딜러가 돋보기를 꺼냅니다... 🔍','info'); setGs({...g}); await sleep(2000);
   }
 
   const known=g.knownBullet;
@@ -574,24 +576,24 @@ async function runDealer(initGs, setGs, pushLog, setThinking) {
   // 3. Invert if known blank
   if(known&&!known.isLive&&g.dItems.includes('invert')&&Math.random()<0.9) {
     g={...g,ch:[true,...g.ch.slice(1)],live:g.live+1,blank:g.blank-1,knownBullet:{isLive:true},dItems:bsRem(g.dItems,'invert')};
-    pushLog('딜러가 인버터를 사용합니다! 🔄','warn'); setGs({...g}); await sleep(900);
+    showItem('invert'); pushLog('딜러가 인버터를 사용합니다! 🔄','warn'); setGs({...g}); await sleep(2000);
   }
 
   // 4. Saw if live bullet expected
   const nowKnown=g.knownBullet;
   if((nowKnown?.isLive||prob()>0.65)&&!g.sawedOff&&g.dItems.includes('saw')&&Math.random()<0.8) {
     g={...g,sawedOff:true,dItems:bsRem(g.dItems,'saw')};
-    pushLog('딜러가 총신을 절단합니다! 🪚','warn'); setGs({...g}); await sleep(900);
+    showItem('saw'); pushLog('딜러가 총신을 절단합니다! 🪚','warn'); setGs({...g}); await sleep(2000);
   }
 
   // 5. Cuff player opportunistically
   if(!g.pCuffed&&g.dItems.includes('cuffs')&&Math.random()<0.65) {
     g={...g,pCuffed:true,dItems:bsRem(g.dItems,'cuffs')};
-    pushLog('딜러가 수갑을 채웁니다! 🔗','warn'); setGs({...g}); await sleep(900);
+    showItem('cuffs'); pushLog('딜러가 수갑을 채웁니다! 🔗','warn'); setGs({...g}); await sleep(2000);
   }
 
   // SHOOT
-  await sleep(500);
+  await sleep(2000);
   const kn=g.knownBullet;
   const shootSelf = kn ? !kn.isLive : prob()<0.4;
   const target=shootSelf?'dealer':'player';
@@ -600,6 +602,7 @@ async function runDealer(initGs, setGs, pushLog, setThinking) {
   g={...g,ch:g.ch.slice(1),live:bullet?g.live-1:g.live,blank:bullet?g.blank:g.blank-1,sawedOff:false,knownBullet:null};
 
   if(bullet) {
+    triggerShake();
     if(target==='player'){g.pHP-=dmg;pushLog(`💥 딜러 → 플레이어! 데미지 ${dmg}`,'hit');}
     else{g.dHP-=dmg;pushLog(`💥 딜러 자신을 쏩니다... 데미지 ${dmg}`,'hit');}
   } else {
@@ -607,18 +610,18 @@ async function runDealer(initGs, setGs, pushLog, setThinking) {
   }
   // 라운드 3: HP ≤ 2 시 제세동기 잠금
   if(g.round===3){if(g.pHP<=2&&g.pHP>0)g={...g,pDefiLocked:true};if(g.dHP<=2&&g.dHP>0)g={...g,dDefiLocked:true};}
-  setGs({...g}); await sleep(500);
+  setGs({...g}); await sleep(2000);
 
   // 플레이어 사망 체크
   if(g.pHP<=0){
     if(!g.pDefiUsed&&!g.pDefiLocked){
-      g={...g,pHP:1,pDefiUsed:true}; pushLog('⚡ 제세동기 발동! 체력 1 회복','warn'); setGs({...g}); await sleep(900);
+      g={...g,pHP:1,pDefiUsed:true}; pushLog('⚡ 제세동기 발동! 체력 1 회복','warn'); setGs({...g}); await sleep(2000);
     } else {setGs({...g,phase:'game_over',winner:'dealer'}); setThinking(false); return;}
   }
   // 딜러 사망 체크
   if(g.dHP<=0){
     if(!g.dDefiUsed&&!g.dDefiLocked){
-      g={...g,dHP:1,dDefiUsed:true}; pushLog('⚡ 제세동기 발동! 딜러 체력 1 회복','warn'); setGs({...g}); await sleep(900);
+      g={...g,dHP:1,dDefiUsed:true}; pushLog('⚡ 제세동기 발동! 딜러 체력 1 회복','warn'); setGs({...g}); await sleep(2000);
     } else {
       const nr=[...g.roundResults,{round:g.round,winner:'player'}];
       setGs({...g,phase:g.round<3?'round_win':'game_over',winner:'player',roundResults:nr});
@@ -641,21 +644,21 @@ async function runDealer(initGs, setGs, pushLog, setThinking) {
       dItems:bsItems(g.dItems,Math.min(itemsPerReload,8-g.dItems.length)),
       revealId:Date.now(),revealVisible:true,revealDisplay:revDisp};
     const docMsg=hasDoc&&(newPHP>prevPHP||newDHP>prevDHP)?' 의사의 도움으로 체력+1':'';
-    pushLog(`탄창 비어있음 — 재장전!${docMsg}`,'reload'); setGs(g); await sleep(1400);
+    pushLog(`탄창 비어있음 — 재장전!${docMsg}`,'reload'); setGs(g); await sleep(2000);
   }
 
   // Dealer blank self-shot = extra turn
   if(!bullet&&target==='dealer') {
     pushLog('딜러 공탄 자가격발 — 딜러 추가 행동!','info');
-    const cont={...g,phase:'dealer_turn'}; setGs(cont); await sleep(700);
-    await runDealer(cont,setGs,pushLog,setThinking); return;
+    const cont={...g,phase:'dealer_turn'}; setGs(cont); await sleep(2000);
+    await runDealer(cont,setGs,pushLog,setThinking,setAiPopup,triggerShake); return;
   }
 
   // Player cuffed? Skip player, dealer acts again
   if(g.pCuffed) {
     pushLog('수갑으로 플레이어 스킵!','info');
-    const skip={...g,pCuffed:false,phase:'dealer_turn'}; setGs(skip); await sleep(700);
-    await runDealer(skip,setGs,pushLog,setThinking); return;
+    const skip={...g,pCuffed:false,phase:'dealer_turn'}; setGs(skip); await sleep(2000);
+    await runDealer(skip,setGs,pushLog,setThinking,setAiPopup,triggerShake); return;
   }
 
   setThinking(false);
@@ -678,13 +681,16 @@ function BuckshotGame({onExit}) {
   const [thinking,setThinking]=useState(false);
   const [flash,setFlash]=useState(null);
   const [hovItem,setHovItem]=useState(null);
+  const [aiPopup,setAiPopup]=useState(null);
+  const [shake,setShake]=useState(false);
 
   const pushLog=useCallback((text,type='info')=>setLog(l=>[...l.slice(-4),{text,type,id:Date.now()+Math.random()}]),[]);
   const doFlash=(type)=>{ setFlash(type); setTimeout(()=>setFlash(null),700); };
+  const triggerShake=()=>{ setShake(true); setTimeout(()=>setShake(false),600); };
 
-  // 탄환 정보 3초 공개 후 자동 숨김
+  // 탄환 정보 3초 공개 후 자동 숨김 (revealId 바뀔 때마다 항상 타이머 시작)
   useEffect(()=>{
-    if(!gs?.revealVisible) return;
+    if(!gs?.revealId) return;
     const id=gs.revealId;
     const t=setTimeout(()=>{
       setGs(prev=>{if(!prev||prev.revealId!==id)return prev;return {...prev,revealVisible:false};});
@@ -717,7 +723,7 @@ function BuckshotGame({onExit}) {
         const ejected=g.ch[0]; g.ch=g.ch.slice(1); g.live-=ejected?1:0; g.blank-=ejected?0:1; g.knownBullet=null;
         pushLog(`맥주로 탄환 배출! ${ejected?'🔴실탄':'⚪공탄'}이었습니다 🍺`,'info');
         if(g.ch.length===0){
-          const hasDoc=g.round<3;
+          const hasDoc=g.round===2;
           const itemsPerReload=g.round===1?0:g.round===2?2:4;
           const newSubReload=g.subReload+1;
           const {ch,live,blank}=bsLoadForRound(g.round,newSubReload);
@@ -757,6 +763,7 @@ function BuckshotGame({onExit}) {
     let g={...gs,ch:gs.ch.slice(1),live:bullet?gs.live-1:gs.live,blank:bullet?gs.blank:gs.blank-1,sawedOff:false,knownBullet:null};
     if(bullet) {
       doFlash(target==='dealer'?'hit-d':'hit-p');
+      triggerShake();
       if(target==='dealer'){g.dHP-=dmg;pushLog(`💥 딜러 피격! 데미지 ${dmg}`,'hit');}
       else{g.pHP-=dmg;pushLog(`💥 자신을 쏩니다! 데미지 ${dmg}`,'hit');}
     } else {
@@ -785,7 +792,7 @@ function BuckshotGame({onExit}) {
 
     // Reload
     if(g.ch.length===0) {
-      const hasDoc=g.round<3;
+      const hasDoc=g.round===2;
       const itemsPerReload=g.round===1?0:g.round===2?2:4;
       const newSubReload=g.subReload+1;
       const {ch,live,blank}=bsLoadForRound(g.round,newSubReload);
@@ -805,9 +812,9 @@ function BuckshotGame({onExit}) {
       setTimeout(()=>{
         if(next==='dealer_turn'){
           const ds={...g,dCuffed:false,phase:'dealer_turn'}; setGs(ds); setThinking(true);
-          runDealer(ds,setGs,pushLog,setThinking);
+          runDealer(ds,setGs,pushLog,setThinking,setAiPopup,triggerShake);
         } else setGs(prev=>({...prev,dCuffed:false,phase:'player_turn'}));
-      },1400);
+      },2000);
       return;
     }
 
@@ -819,7 +826,7 @@ function BuckshotGame({onExit}) {
     }
 
     const ds={...g,phase:'dealer_turn'}; setGs(ds); setThinking(true);
-    runDealer(ds,setGs,pushLog,setThinking);
+    runDealer(ds,setGs,pushLog,setThinking,setAiPopup,triggerShake);
   };
 
   // Intro screen
@@ -841,7 +848,7 @@ function BuckshotGame({onExit}) {
         </div>
         <div style={{background:'rgba(255,255,255,.03)',borderRadius:8,padding:'9px 12px',marginBottom:14,fontSize:'.7rem',color:'#6a5a4a',lineHeight:1.8}}>
           <div style={{color:'#9a8060',fontWeight:600,marginBottom:4}}>3라운드 구성</div>
-          <div>R1: 라이프 2 · 아이템 없음 · 의사O · 탄환 1+2</div>
+          <div>R1: 라이프 2 · 아이템 없음 · 의사X · 탄환 1+2</div>
           <div>R2: 라이프 4 · 장전당 2개 · 의사O</div>
           <div>R3: 라이프 6 · 장전당 4개 · 의사X · 탄환정보 비공개</div>
           <div style={{color:'#f87171',marginTop:3,fontSize:'.65rem'}}>한 라운드라도 패배하면 게임 종료</div>
@@ -889,7 +896,7 @@ function BuckshotGame({onExit}) {
             <div style={{fontFamily:"'Cinzel',serif",fontSize:'.65rem',color:'#8a7a5a',letterSpacing:'.12em',marginBottom:8}}>ROUND {nextRound} 정보</div>
             <div style={{color:'#c0a070',marginBottom:3}}>체력: {nextHP} HP</div>
             <div style={{color:'#c0a070',marginBottom:3}}>아이템: 장전당 {nextItems}개</div>
-            <div style={{color:'#c0a070',marginBottom:3}}>의사의 도움: {nextRound<3?'있음':'없음'}</div>
+            <div style={{color:'#c0a070',marginBottom:3}}>의사의 도움: {nextRound===2?'있음':'없음'}</div>
             {nextRound===3&&<div style={{color:'#f59e0b',marginTop:6,fontSize:'.7rem'}}>⚠ 탄환 정보 비공개 · HP≤2 시 제세동기 비활성</div>}
           </div>
           <button onClick={()=>{setGs(bsInitRound(nextRound,gs.roundResults));setLog([]);setThinking(false);}}
@@ -906,9 +913,19 @@ function BuckshotGame({onExit}) {
   const logColors={hit:'#f87171',blank:'#818cf8',reload:'#f59e0b',warn:'#fb923c',info:'#6a8a6a'};
 
   return (
-    <div style={{maxWidth:440,margin:'0 auto',userSelect:'none'}}>
+    <div style={{maxWidth:440,margin:'0 auto',userSelect:'none',animation:shake?'bsShake .55s ease':'none'}}>
       {/* Flash overlay */}
       {flash&&<div style={{position:'fixed',inset:0,pointerEvents:'none',zIndex:998,background:flash==='hit-d'?'rgba(248,113,113,.12)':flash==='hit-p'?'rgba(248,113,113,.22)':'rgba(180,180,255,.07)',animation:'bsFlash .55s ease forwards'}}/>}
+      {/* AI item popup */}
+      {aiPopup&&(
+        <div style={{position:'fixed',inset:0,display:'flex',alignItems:'center',justifyContent:'center',zIndex:999,pointerEvents:'none'}}>
+          <div style={{background:'rgba(10,4,2,.95)',border:'1px solid rgba(200,80,40,.5)',borderRadius:18,padding:'22px 36px',textAlign:'center',animation:'bsPopup .35s ease',boxShadow:'0 8px 32px rgba(0,0,0,.7)'}}>
+            <div style={{fontSize:'3.2rem',lineHeight:1,marginBottom:8}}>{BSI[aiPopup].e}</div>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:'.85rem',color:'#f59e0b',letterSpacing:'.08em'}}>딜러 사용</div>
+            <div style={{fontSize:'.78rem',color:'#c0a070',marginTop:4}}>{BSI[aiPopup].n}</div>
+          </div>
+        </div>
+      )}
 
       {/* ── DEALER ZONE (top) ── */}
       <div style={{background:'rgba(20,6,4,.88)',border:'1px solid rgba(180,60,30,.22)',borderRadius:'12px 12px 0 0',padding:'12px 14px 10px'}}>
@@ -1159,6 +1176,8 @@ export default function App() {
         @keyframes diceRoll{0%{transform:rotateX(0) rotateY(0) rotateZ(0);}15%{transform:rotateX(180deg) rotateY(90deg) rotateZ(45deg);}30%{transform:rotateX(90deg) rotateY(270deg) rotateZ(90deg);}45%{transform:rotateX(270deg) rotateY(180deg) rotateZ(200deg);}60%{transform:rotateX(360deg) rotateY(360deg) rotateZ(270deg);}75%{transform:rotateX(180deg) rotateY(450deg) rotateZ(310deg);}100%{transform:rotateX(540deg) rotateY(630deg) rotateZ(360deg);}}
         @keyframes yflash{0%,100%{opacity:0;transform:scale(.5);}15%,85%{opacity:1;transform:scale(1.05);}50%{transform:scale(1);}}
         @keyframes bsFlash{0%{opacity:.9;}100%{opacity:0;}}
+        @keyframes bsShake{0%,100%{transform:translate(0,0);}10%,50%,90%{transform:translate(-8px,3px);}30%,70%{transform:translate(8px,-3px);}20%,60%,80%{transform:translate(-5px,-2px);}40%{transform:translate(5px,2px);}}
+        @keyframes bsPopup{0%{opacity:0;transform:scale(.5);}60%{transform:scale(1.08);}100%{opacity:1;transform:scale(1);}}
         @keyframes dealerPulse{0%{transform:scale(1);}100%{transform:scale(1.12);}}
         @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
         @keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
