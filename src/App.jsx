@@ -27,7 +27,7 @@ async function stGet(key) {
   try { const r=await window.storage.get(key,true); return r?JSON.parse(r.value):null; } catch { return null; }
 }
 async function stSet(key, val) {
-  try { await window.storage.set(key,JSON.stringify(val),true); return true; } catch { return false; }
+  try { const r=await window.storage.set(key,JSON.stringify(val),true); return r!=null; } catch { return false; }
 }
 async function stDel(key) { try { await window.storage.delete(key,true); } catch {} }
 async function stGetRetry(key, n=4) {
@@ -1114,7 +1114,7 @@ export default function App() {
     const id=makeRoom(),key=`yst-${gameId}-${id}`;
     const st={gameId,phase:'lobby',host:pid,players:[{id:pid,name:name.trim(),scores:{}}],currentPlayerIndex:0,dice:yNewDice(),held:yNoHeld(),rollsLeft:3};
     const ok=await stSet(key,st);
-    if(!ok){setErr('방 생성에 실패했습니다.');return;}
+    if(!ok){setErr('방 생성에 실패했습니다. Firebase 연결을 확인하세요.');return;}
     setRoomId(id); setMulti(st); setErr(''); setScreen('multi-lobby');
   };
 
@@ -1245,21 +1245,6 @@ export default function App() {
         <div style={{maxWidth:360,margin:'0 auto',animation:'fadeIn .3s ease'}}>
           <div style={card}>
             <div style={{...sLbl,marginBottom:10}}>멀티플레이 — {curGame.name}</div>
-            {!import.meta.env.VITE_FIREBASE_URL ? (
-              <div style={{background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.25)',borderRadius:9,padding:'12px 14px',marginBottom:12}}>
-                <div style={{fontFamily:"'Cinzel',serif",fontSize:'.72rem',color:'#f87171',marginBottom:6}}>⚠ Firebase 설정 필요</div>
-                <div style={{fontSize:'.72rem',color:'#a07070',lineHeight:1.7}}>
-                  멀티플레이를 사용하려면 Firebase Realtime Database URL을 Vercel 환경 변수에 추가해야 합니다.<br/><br/>
-                  <span style={{color:'#c9a84c',fontWeight:600}}>설정 방법:</span><br/>
-                  1. <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" style={{color:'#818cf8'}}>firebase.google.com</a> → 프로젝트 만들기<br/>
-                  2. Build → Realtime Database → 데이터베이스 만들기 (테스트 모드)<br/>
-                  3. URL 복사 (예: https://xxx-rtdb.firebaseio.com)<br/>
-                  4. Vercel → Settings → Environment Variables<br/>
-                  &nbsp;&nbsp;&nbsp;<span style={{color:'#c9a84c'}}>VITE_FIREBASE_URL</span> = 복사한 URL<br/>
-                  5. Redeploy
-                </div>
-              </div>
-            ) : null}
             <input style={inp} placeholder="내 닉네임" value={name} maxLength={12} onChange={e=>setName(e.target.value)}/>
             <button style={{...btnG,width:'100%',padding:'11px',marginTop:10,opacity:name.trim()?1:.4}} onClick={createRoom} disabled={!name.trim()}>🏠 방 만들기</button>
             <div style={{borderTop:'1px solid rgba(180,140,40,.1)',margin:'12px 0'}}/>
